@@ -3,10 +3,10 @@ module MathOptInterfaceOSQP
 include("modcaches.jl")
 using .ModificationCaches
 
-using Compat
-using Compat.SparseArrays
+using SparseArrays
 using MathOptInterface
 using MathOptInterface.Utilities
+using LinearAlgebra: rmul!
 
 export Optimizer, OSQPSettings, OSQPModel
 
@@ -72,12 +72,15 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     warmstartcache::WarmStartCache{Float64}
     rowranges::Dict{Int, UnitRange{Int}}
 
-    function Optimizer()
+    function Optimizer(; kwargs...)
         inner = OSQP.Model()
         hasresults = false
         results = OSQP.Results()
         is_empty = true
         settings = Dict{Symbol, Any}()
+        for (name, value) in kwargs
+            settings[Symbol(name)] = value
+        end
         sense = MOI.MIN_SENSE
         objconstant = 0.
         constrconstant = Float64[]
@@ -206,7 +209,7 @@ function processobjective(src::MOI.ModelLike, idxmap)
         else
             throw(MOI.UnsupportedAttribute(MOI.ObjectiveFunction{function_type}()))
         end
-        sense == MOI.MAX_SENSE && (Compat.rmul!(P, -1); Compat.rmul!(q, -1); c = -c)
+        sense == MOI.MAX_SENSE && (rmul!(P, -1); rmul!(q, -1); c = -c)
     else
         P = spzeros(n, n)
         q = zeros(n)
@@ -246,11 +249,7 @@ function symmetrize!(I::Vector{Int}, J::Vector{Int}, V::Vector)
 end
 
 function processconstraints(src::MOI.ModelLike, idxmap, rowranges::Dict{Int, UnitRange{Int}})
-    if VERSION < v"0.7-"
-        m = mapreduce(length, +, 0, values(rowranges))
-    else
-        m = mapreduce(length, +, values(rowranges), init=0)
-    end
+    m = mapreduce(length, +, values(rowranges), init=0)
     l = Vector{Float64}(undef, m)
     u = Vector{Float64}(undef, m)
     constant = Vector{Float64}(undef, m)
@@ -403,7 +402,6 @@ end
 ## Solver-specific optimizer attributes:
 module OSQPSettings
 
-using Compat
 using MathOptInterface
 using OSQP
 

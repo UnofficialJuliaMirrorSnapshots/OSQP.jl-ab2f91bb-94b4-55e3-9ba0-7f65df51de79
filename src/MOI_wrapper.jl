@@ -88,18 +88,36 @@ MOI.get(::Optimizer, ::MOI.SolverName) = "OSQP"
 
 MOI.supports(::Optimizer, ::MOI.Silent) = true
 function MOI.set(optimizer::Optimizer, ::MOI.Silent, value::Bool)
-    if optimizer.silent != value
-        optimizer.silent = value
-        if !MOI.is_empty(optimizer)
-            if optimizer.silent
-                OSQP.update_settings!(optimizer.inner; :verbose => false)
-            else
-                OSQP.update_settings!(optimizer.inner; :verbose => optimizer.settings[:verbose])
-            end
+    optimizer.silent = value
+    if !MOI.is_empty(optimizer)
+        if optimizer.silent
+            OSQP.update_settings!(optimizer.inner; :verbose => false)
+        else
+            OSQP.update_settings!(optimizer.inner; :verbose => optimizer.settings[:verbose])
         end
     end
 end
 MOI.get(optimizer::Optimizer, ::MOI.Silent) = optimizer.silent
+
+
+
+MOI.supports(::Optimizer, ::MOI.TimeLimitSec) = true
+function MOI.set(model::Optimizer, ::MOI.TimeLimitSec, limit::Real)
+    MOI.set(model, OSQPSettings.TimeLimit(), limit)
+    return
+end
+
+function MOI.set(model::Optimizer, attr::MOI.TimeLimitSec, ::Nothing)
+    delete!(model.settings, :time_limit)
+    OSQP.update_settings!(model.inner, time_limit=0.0)
+    return
+end
+
+function MOI.get(model::Optimizer, ::MOI.TimeLimitSec)
+    return get(model.settings, :time_limit, nothing)
+end
+
+
 
 hasresults(optimizer::Optimizer) = optimizer.hasresults
 
@@ -126,10 +144,11 @@ function MOI.copy_to(dest::Optimizer, src::MOI.ModelLike; copy_names=false)
     assign_constraint_row_ranges!(dest.rowranges, idxmap, src)
     dest.sense, P, q, dest.objconstant = processobjective(src, idxmap)
     A, l, u, dest.constrconstant = processconstraints(src, idxmap, dest.rowranges)
-    OSQP.setup!(dest.inner; P = P, q = q, A = A, l = l, u = u, dest.settings...)
+    settings = copy(dest.settings)
     if dest.silent
-        OSQP.update_settings!(dest.inner; :verbose => false)
+        settings[:verbose] = false
     end
+    OSQP.setup!(dest.inner; P = P, q = q, A = A, l = l, u = u, settings...)
     dest.modcache = ProblemModificationCache(P, q, A, l, u)
     dest.warmstartcache = WarmStartCache{Float64}(size(A, 2), size(A, 1))
     processprimalstart!(dest.warmstartcache.x, src, idxmap)
